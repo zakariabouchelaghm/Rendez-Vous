@@ -280,7 +280,7 @@ export default function HomePage() {
                   setSelectedSlot(slot);
                   setBookingError(null);
                 }}
-                selectedDate={selectedDate}
+                selectedDate={selectedDate ?? new Date()}
                 onDateChange={(date) => {
                   setSelectedDate(date);
                   setSelectedSlot(null);
