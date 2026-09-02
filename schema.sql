@@ -1,8 +1,12 @@
 -- SQL Schema for Supabase Setup
 -- Medical Appointment Booking Application (Arabic RTL)
 
--- 1. Create Appointment Status Enum
-CREATE TYPE appointment_status AS ENUM ('pending', 'confirmed', 'canceled', 'expired');
+-- 1. Create Appointment Status Enum if not exists
+DO $$ BEGIN
+    CREATE TYPE appointment_status AS ENUM ('pending', 'confirmed', 'canceled', 'expired');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
 
 -- 2. Create Appointments Table
 CREATE TABLE IF NOT EXISTS appointments (
@@ -32,21 +36,36 @@ CREATE TABLE IF NOT EXISTS blacklisted_phones (
 -- Index for fast phone lookup
 CREATE INDEX IF NOT EXISTS idx_blacklisted_phones ON blacklisted_phones(phone_number);
 
--- 4. Enable Row Level Security (RLS) - Public Read/Write with Appropriate Access
+-- 4. Create Clinic Settings Table (For Doctor Working Days & Configuration)
+CREATE TABLE IF NOT EXISTS clinic_settings (
+    key TEXT PRIMARY KEY,
+    value JSONB NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Insert default working days: Sunday(0), Monday(1), Tuesday(2), Wednesday(3), Thursday(4), Saturday(6) - Friday(5) closed
+INSERT INTO clinic_settings (key, value)
+VALUES ('working_days', '[0, 1, 2, 3, 4, 6]'::jsonb)
+ON CONFLICT (key) DO NOTHING;
+
+-- 5. Enable Row Level Security (RLS) & Policies
 ALTER TABLE appointments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE blacklisted_phones ENABLE ROW LEVEL SECURITY;
+ALTER TABLE clinic_settings ENABLE ROW LEVEL SECURITY;
 
--- Allow anonymous select/insert/update for public appointment booking & confirmation
+-- Public Read & Write Policies for Anonymous Access
 CREATE POLICY "Allow public insert appointments" ON appointments FOR INSERT WITH CHECK (true);
 CREATE POLICY "Allow public select appointments" ON appointments FOR SELECT USING (true);
 CREATE POLICY "Allow public update appointments" ON appointments FOR UPDATE USING (true);
 CREATE POLICY "Allow public delete appointments" ON appointments FOR DELETE USING (true);
 
--- Allow public check on blacklist
 CREATE POLICY "Allow public select blacklisted_phones" ON blacklisted_phones FOR SELECT USING (true);
 CREATE POLICY "Allow public insert blacklisted_phones" ON blacklisted_phones FOR INSERT WITH CHECK (true);
 
--- 5. Updated_at Trigger
+CREATE POLICY "Allow public select clinic_settings" ON clinic_settings FOR SELECT USING (true);
+CREATE POLICY "Allow public update clinic_settings" ON clinic_settings FOR ALL USING (true);
+
+-- 6. Trigger for updated_at
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -55,6 +74,7 @@ BEGIN
 END;
 $$ language 'plpgsql';
 
+DROP TRIGGER IF EXISTS update_appointments_updated_at ON appointments;
 CREATE TRIGGER update_appointments_updated_at
 BEFORE UPDATE ON appointments
 FOR EACH ROW

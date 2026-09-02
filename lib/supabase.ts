@@ -2,131 +2,96 @@ import { createClient } from '@supabase/supabase-js';
 import { Appointment, BlacklistedPhone, AppointmentStatus } from './types';
 import { getHoursUntilAppointment } from './utils';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+// Clean Supabase URL if trailing /rest/v1/ was included in .env
+let rawUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+rawUrl = rawUrl.replace(/\/rest\/v1\/?$/, '').replace(/\/$/, '');
+
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
-const isRealSupabaseConfigured = Boolean(
-  supabaseUrl && 
-  supabaseAnonKey && 
-  !supabaseUrl.includes('your-supabase-project') &&
-  !supabaseAnonKey.includes('your-supabase-anon-key')
-);
-
-export const supabase = isRealSupabaseConfigured
-  ? createClient(supabaseUrl, supabaseAnonKey)
-  : null;
-
-// Default Working Days: Sunday(0), Monday(1), Tuesday(2), Wednesday(3), Thursday(4), Saturday(6). Friday(5) is CLOSED by default.
-let memoryWorkingDays: number[] = [0, 1, 2, 3, 4, 6];
+export const supabase = createClient(rawUrl, supabaseAnonKey);
 
 // ==========================================
-// In-Memory / LocalStorage Fallback Store
+// Working Days Management (Stored in Supabase clinic_settings)
 // ==========================================
-let memoryAppointments: Appointment[] = [
-  {
-    id: 'demo-1',
-    full_name: 'أحمد محمود',
-    phone_number: '01012345678',
-    appointment_time: new Date(Date.now() + 5 * 60 * 60 * 1000).toISOString(), // 5 hours away
-    booking_code: 'MED-9981',
-    status: 'pending',
-    is_flash_booking: false,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  },
-  {
-    id: 'demo-2',
-    full_name: 'سارة خالد',
-    phone_number: '01198765432',
-    appointment_time: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(), // 2 hours away (Flash)
-    booking_code: 'MED-3342',
-    status: 'confirmed',
-    is_flash_booking: true,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  }
-];
 
-let memoryBlacklist: BlacklistedPhone[] = [
-  {
-    id: 'blk-1',
-    phone_number: '01000000000',
-    reason: 'عدم حضور متكرر',
-    created_at: new Date().toISOString(),
-  }
-];
+// Default working days: Sunday(0), Monday(1), Tuesday(2), Wednesday(3), Thursday(4), Saturday(6) - Friday(5) closed
+const DEFAULT_WORKING_DAYS = [0, 1, 2, 3, 4, 6];
 
-// Load from LocalStorage if browser environment
-if (typeof window !== 'undefined') {
+export async function getWorkingDays(): Promise<number[]> {
   try {
-    const savedAppts = localStorage.getItem('rendezvous_appointments');
-    if (savedAppts) memoryAppointments = JSON.parse(savedAppts);
+    const { data, error } = await supabase
+      .from('clinic_settings')
+      .select('value')
+      .eq('key', 'working_days')
+      .maybeSingle();
 
-    const savedBlk = localStorage.getItem('rendezvous_blacklist');
-    if (savedBlk) memoryBlacklist = JSON.parse(savedBlk);
-
-    const savedDays = localStorage.getItem('rendezvous_working_days');
-    if (savedDays) memoryWorkingDays = JSON.parse(savedDays);
-  } catch (e) {
-    console.error('Failed loading local storage fallback:', e);
+    if (!error && data && Array.isArray(data.value)) {
+      return data.value as number[];
+    }
+  } catch (err) {
+    console.warn('Could not fetch working_days from Supabase, using default working days:', err);
   }
-}
 
-function persistFallbackData() {
+  // Fallback to local storage or defaults if table not created yet
   if (typeof window !== 'undefined') {
     try {
-      localStorage.setItem('rendezvous_appointments', JSON.stringify(memoryAppointments));
-      localStorage.setItem('rendezvous_blacklist', JSON.stringify(memoryBlacklist));
-      localStorage.setItem('rendezvous_working_days', JSON.stringify(memoryWorkingDays));
-    } catch (e) {
-      console.error('Failed saving to local storage:', e);
-    }
+      const saved = localStorage.getItem('rendezvous_working_days');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
   }
-}
 
-// ==========================================
-// Working Days Management
-// ==========================================
-export async function getWorkingDays(): Promise<number[]> {
-  return [...memoryWorkingDays];
+  return DEFAULT_WORKING_DAYS;
 }
 
 export async function saveWorkingDays(days: number[]): Promise<boolean> {
-  memoryWorkingDays = days;
-  persistFallbackData();
+  try {
+    const { error } = await supabase
+      .from('clinic_settings')
+      .upsert({ key: 'working_days', value: days, updated_at: new Date().toISOString() });
+
+    if (!error) {
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('rendezvous_working_days', JSON.stringify(days));
+      }
+      return true;
+    }
+  } catch (err) {
+    console.warn('Could not save working_days to Supabase:', err);
+  }
+
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('rendezvous_working_days', JSON.stringify(days));
+  }
   return true;
 }
 
 // ==========================================
-// Service Functions (Dual-Mode Supported)
+// Core Database Integration (Supabase)
 // ==========================================
 
 /**
- * Check if a phone number is blacklisted
+ * Check if a phone number is blacklisted in Supabase
  */
 export async function isPhoneBlacklisted(phoneNumber: string): Promise<boolean> {
   const cleanPhone = phoneNumber.trim();
 
-  if (supabase) {
-    try {
-      const { data, error } = await supabase
-        .from('blacklisted_phones')
-        .select('phone_number')
-        .eq('phone_number', cleanPhone)
-        .single();
-      
-      if (!error && data) return true;
-    } catch (err) {
-      console.warn('Supabase blacklist check fallback:', err);
-    }
+  try {
+    const { data, error } = await supabase
+      .from('blacklisted_phones')
+      .select('phone_number')
+      .eq('phone_number', cleanPhone)
+      .maybeSingle();
+
+    if (!error && data) return true;
+  } catch (err) {
+    console.error('Blacklist query error:', err);
   }
 
-  // Fallback memory check
-  return memoryBlacklist.some(b => b.phone_number === cleanPhone);
+  return false;
 }
 
 /**
- * Create a new appointment
+ * Create a new appointment in Supabase
  */
 export async function createAppointment(data: {
   full_name: string;
@@ -145,288 +110,189 @@ export async function createAppointment(data: {
     };
   }
 
-  // 2. Try Supabase insert
-  if (supabase) {
-    try {
-      const { data: inserted, error } = await supabase
-        .from('appointments')
-        .insert([{
-          full_name: data.full_name,
-          phone_number: data.phone_number,
-          appointment_time: data.appointment_time,
-          booking_code: data.booking_code,
-          status: data.status,
-          is_flash_booking: data.is_flash_booking,
-        }])
-        .select()
-        .single();
+  // 2. Insert into Supabase
+  try {
+    const { data: inserted, error } = await supabase
+      .from('appointments')
+      .insert([{
+        full_name: data.full_name,
+        phone_number: data.phone_number,
+        appointment_time: data.appointment_time,
+        booking_code: data.booking_code,
+        status: data.status,
+        is_flash_booking: data.is_flash_booking,
+      }])
+      .select()
+      .single();
 
-      if (!error && inserted) {
-        return { success: true, appointment: inserted as Appointment };
-      }
-      console.warn('Supabase insert failed, using fallback mode:', error?.message);
-    } catch (err) {
-      console.warn('Supabase insert exception, using fallback:', err);
+    if (!error && inserted) {
+      return { success: true, appointment: inserted as Appointment };
     }
+
+    return {
+      success: false,
+      error: error?.message || 'فشل حفظ الحجز في قاعدة البيانات، يُرجى التأكد من تشغيل الـ SQL Schema.'
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      error: err?.message || 'حدث خطأ عند الاتصال بقاعدة البيانات.'
+    };
   }
-
-  // 3. Fallback insert
-  const newAppt: Appointment = {
-    id: `appt-${Date.now()}`,
-    full_name: data.full_name,
-    phone_number: data.phone_number,
-    appointment_time: data.appointment_time,
-    booking_code: data.booking_code,
-    status: data.status,
-    is_flash_booking: data.is_flash_booking,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  };
-
-  memoryAppointments.push(newAppt);
-  persistFallbackData();
-
-  return { success: true, appointment: newAppt };
 }
 
 /**
- * Confirm an existing appointment by booking code and phone number
+ * Confirm an existing appointment by booking code and phone number in Supabase
  */
 export async function confirmAppointment(bookingCode: string, phoneNumber: string): Promise<{ success: boolean; message: string }> {
   const cleanCode = bookingCode.trim().toUpperCase();
   const cleanPhone = phoneNumber.trim();
 
-  // Try Supabase first
-  if (supabase) {
-    try {
-      const { data, error } = await supabase
-        .from('appointments')
-        .select('*')
-        .eq('booking_code', cleanCode)
-        .eq('phone_number', cleanPhone)
-        .single();
+  try {
+    const { data, error } = await supabase
+      .from('appointments')
+      .select('*')
+      .eq('booking_code', cleanCode)
+      .eq('phone_number', cleanPhone)
+      .maybeSingle();
 
-      if (!error && data) {
-        const appt = data as Appointment;
-        
-        if (appt.status === 'confirmed') {
-          return { success: true, message: 'حضورك مؤكد بالفعل لهذا الموعد!' };
-        }
-
-        if (appt.status === 'canceled' || appt.status === 'expired') {
-          return { success: false, message: 'رمز الحجز غير صحيح أو انتهت صلاحيته بسبب التأخر في التأكيد.' };
-        }
-
-        // Check if < 3 hours remaining before appointment time
-        const hoursUntil = getHoursUntilAppointment(appt.appointment_time);
-        if (hoursUntil < 3) {
-          // Expire appointment
-          await supabase
-            .from('appointments')
-            .update({ status: 'expired', updated_at: new Date().toISOString() })
-            .eq('id', appt.id);
-
-          return { success: false, message: 'رمز الحجز غير صحيح أو انتهت صلاحيته بسبب التأخر في التأكيد.' };
-        }
-
-        // Update to confirmed
-        const { error: updateErr } = await supabase
-          .from('appointments')
-          .update({ status: 'confirmed', updated_at: new Date().toISOString() })
-          .eq('id', appt.id);
-
-        if (!updateErr) {
-          return { success: true, message: 'تم تأكيد حضورك بنجاح!' };
-        }
-      }
-    } catch (err) {
-      console.warn('Supabase confirm failed, checking fallback:', err);
+    if (error || !data) {
+      return { success: false, message: 'رمز الحجز غير صحيح أو انتهت صلاحيته بسبب التأخر في التأكيد.' };
     }
+
+    const appt = data as Appointment;
+
+    if (appt.status === 'confirmed') {
+      return { success: true, message: 'حضورك مؤكد بالفعل لهذا الموعد!' };
+    }
+
+    if (appt.status === 'canceled' || appt.status === 'expired') {
+      return { success: false, message: 'رمز الحجز غير صحيح أو انتهت صلاحيته بسبب التأخر في التأكيد.' };
+    }
+
+    // Check if < 3 hours remaining before appointment time
+    const hoursUntil = getHoursUntilAppointment(appt.appointment_time);
+    if (hoursUntil < 3) {
+      // Expire appointment
+      await supabase
+        .from('appointments')
+        .update({ status: 'expired', updated_at: new Date().toISOString() })
+        .eq('id', appt.id);
+
+      return { success: false, message: 'رمز الحجز غير صحيح أو انتهت صلاحيته بسبب التأخر في التأكيد.' };
+    }
+
+    // Update to confirmed
+    const { error: updateErr } = await supabase
+      .from('appointments')
+      .update({ status: 'confirmed', updated_at: new Date().toISOString() })
+      .eq('id', appt.id);
+
+    if (!updateErr) {
+      return { success: true, message: 'تم تأكيد حضورك بنجاح!' };
+    }
+  } catch (err) {
+    console.error('Error confirming appointment:', err);
   }
 
-  // Fallback memory logic
-  const apptIndex = memoryAppointments.findIndex(
-    a => a.booking_code.toUpperCase() === cleanCode && a.phone_number === cleanPhone
-  );
-
-  if (apptIndex === -1) {
-    return { success: false, message: 'رمز الحجز غير صحيح أو انتهت صلاحيته بسبب التأخر في التأكيد.' };
-  }
-
-  const appt = memoryAppointments[apptIndex];
-
-  if (appt.status === 'confirmed') {
-    return { success: true, message: 'حضورك مؤكد بالفعل لهذا الموعد!' };
-  }
-
-  if (appt.status === 'canceled' || appt.status === 'expired') {
-    return { success: false, message: 'رمز الحجز غير صحيح أو انتهت صلاحيته بسبب التأخر في التأكيد.' };
-  }
-
-  const hoursUntil = getHoursUntilAppointment(appt.appointment_time);
-  if (hoursUntil < 3) {
-    memoryAppointments[apptIndex].status = 'expired';
-    memoryAppointments[apptIndex].updated_at = new Date().toISOString();
-    persistFallbackData();
-    return { success: false, message: 'رمز الحجز غير صحيح أو انتهت صلاحيته بسبب التأخر في التأكيد.' };
-  }
-
-  memoryAppointments[apptIndex].status = 'confirmed';
-  memoryAppointments[apptIndex].updated_at = new Date().toISOString();
-  persistFallbackData();
-
-  return { success: true, message: 'تم تأكيد حضورك بنجاح!' };
+  return { success: false, message: 'رمز الحجز غير صحيح أو انتهت صلاحيته بسبب التأخر في التأكيد.' };
 }
 
 /**
- * Get list of appointments (filtered optional by status or date)
+ * Fetch all appointments from Supabase
  */
 export async function fetchAppointments(): Promise<Appointment[]> {
-  if (supabase) {
-    try {
-      const { data, error } = await supabase
-        .from('appointments')
-        .select('*')
-        .order('appointment_time', { ascending: true });
+  try {
+    const { data, error } = await supabase
+      .from('appointments')
+      .select('*')
+      .order('appointment_time', { ascending: true });
 
-      if (!error && data) {
-        return data as Appointment[];
-      }
-    } catch (err) {
-      console.warn('Supabase fetch failed, returning fallback memory appts:', err);
+    if (!error && data) {
+      return data as Appointment[];
     }
+  } catch (err) {
+    console.error('Error fetching appointments from Supabase:', err);
   }
 
-  return [...memoryAppointments].sort((a, b) => 
-    new Date(a.appointment_time).getTime() - new Date(b.appointment_time).getTime()
-  );
+  return [];
 }
 
 /**
- * Update appointment status to 'canceled'
+ * Update appointment status to 'canceled' in Supabase
  */
 export async function cancelAppointment(appointmentId: string): Promise<boolean> {
-  if (supabase) {
-    try {
-      const { error } = await supabase
-        .from('appointments')
-        .update({ status: 'canceled', updated_at: new Date().toISOString() })
-        .eq('id', appointmentId);
+  try {
+    const { error } = await supabase
+      .from('appointments')
+      .update({ status: 'canceled', updated_at: new Date().toISOString() })
+      .eq('id', appointmentId);
 
-      if (!error) return true;
-    } catch (err) {
-      console.warn('Supabase cancel failed, fallbacking:', err);
-    }
+    if (!error) return true;
+  } catch (err) {
+    console.error('Error canceling appointment:', err);
   }
 
-  const idx = memoryAppointments.findIndex(a => a.id === appointmentId);
-  if (idx !== -1) {
-    memoryAppointments[idx].status = 'canceled';
-    memoryAppointments[idx].updated_at = new Date().toISOString();
-    persistFallbackData();
-    return true;
-  }
   return false;
 }
 
 /**
- * Mark patient as No-Show: Adds phone number to blacklisted_phones and sets status to 'canceled'
+ * Mark patient as No-Show: Adds phone number to blacklisted_phones and sets status to 'canceled' in Supabase
  */
 export async function markPatientNoShow(appointmentId: string, phoneNumber: string, reason = 'تسجيل عدم حضور من قبل الطبيب'): Promise<boolean> {
   const cleanPhone = phoneNumber.trim();
 
-  if (supabase) {
-    try {
-      // 1. Add to blacklist
-      await supabase
-        .from('blacklisted_phones')
-        .insert([{ phone_number: cleanPhone, reason }]);
+  try {
+    // 1. Add to blacklisted_phones table in Supabase
+    await supabase
+      .from('blacklisted_phones')
+      .upsert({ phone_number: cleanPhone, reason }, { onConflict: 'phone_number' });
 
-      // 2. Update appointment status
-      await supabase
-        .from('appointments')
-        .update({ status: 'canceled', updated_at: new Date().toISOString() })
-        .eq('id', appointmentId);
+    // 2. Update appointment status to canceled
+    const { error } = await supabase
+      .from('appointments')
+      .update({ status: 'canceled', updated_at: new Date().toISOString() })
+      .eq('id', appointmentId);
 
-      return true;
-    } catch (err) {
-      console.warn('Supabase no-show mark failed, fallbacking:', err);
-    }
+    if (!error) return true;
+  } catch (err) {
+    console.error('Error marking no-show:', err);
   }
 
-  // Fallback memory
-  if (!memoryBlacklist.some(b => b.phone_number === cleanPhone)) {
-    memoryBlacklist.push({
-      id: `blk-${Date.now()}`,
-      phone_number: cleanPhone,
-      reason,
-      created_at: new Date().toISOString(),
-    });
-  }
-
-  const apptIdx = memoryAppointments.findIndex(a => a.id === appointmentId);
-  if (apptIdx !== -1) {
-    memoryAppointments[apptIdx].status = 'canceled';
-    memoryAppointments[apptIdx].updated_at = new Date().toISOString();
-  }
-
-  persistFallbackData();
-  return true;
+  return false;
 }
 
 /**
- * Automated Cron Cleanup: Find pending records < 3 hours away and mark them as expired
+ * Automated Cron Cleanup: Find pending records < 3 hours away and mark them as expired in Supabase
  */
 export async function cleanupExpiredAppointments(): Promise<{ expiredCount: number; updatedIds: string[] }> {
   const now = new Date();
   const updatedIds: string[] = [];
 
-  if (supabase) {
-    try {
-      // Get all pending appointments
-      const { data: pendingAppts, error } = await supabase
-        .from('appointments')
-        .select('*')
-        .eq('status', 'pending');
+  try {
+    const { data: pendingAppts, error } = await supabase
+      .from('appointments')
+      .select('*')
+      .eq('status', 'pending');
 
-      if (!error && pendingAppts) {
-        for (const appt of pendingAppts as Appointment[]) {
-          const apptTime = new Date(appt.appointment_time);
-          const diffHours = (apptTime.getTime() - now.getTime()) / (1000 * 60 * 60);
+    if (!error && pendingAppts) {
+      for (const appt of pendingAppts as Appointment[]) {
+        const apptTime = new Date(appt.appointment_time);
+        const diffHours = (apptTime.getTime() - now.getTime()) / (1000 * 60 * 60);
 
-          // If pending and < 3 hours before appointment time
-          if (diffHours < 3) {
-            await supabase
-              .from('appointments')
-              .update({ status: 'expired', updated_at: now.toISOString() })
-              .eq('id', appt.id);
+        // If pending and < 3 hours before appointment time
+        if (diffHours < 3) {
+          await supabase
+            .from('appointments')
+            .update({ status: 'expired', updated_at: now.toISOString() })
+            .eq('id', appt.id);
 
-            updatedIds.push(appt.id);
-          }
+          updatedIds.push(appt.id);
         }
-
-        return { expiredCount: updatedIds.length, updatedIds };
-      }
-    } catch (err) {
-      console.warn('Supabase cron cleanup exception, using memory fallback:', err);
-    }
-  }
-
-  // Fallback cleanup
-  memoryAppointments.forEach((appt, idx) => {
-    if (appt.status === 'pending') {
-      const apptTime = new Date(appt.appointment_time);
-      const diffHours = (apptTime.getTime() - now.getTime()) / (1000 * 60 * 60);
-      if (diffHours < 3) {
-        memoryAppointments[idx].status = 'expired';
-        memoryAppointments[idx].updated_at = now.toISOString();
-        updatedIds.push(appt.id);
       }
     }
-  });
-
-  if (updatedIds.length > 0) {
-    persistFallbackData();
+  } catch (err) {
+    console.error('Cron cleanup error:', err);
   }
 
   return { expiredCount: updatedIds.length, updatedIds };
