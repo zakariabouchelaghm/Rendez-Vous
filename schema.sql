@@ -51,10 +51,14 @@ INSERT INTO clinic_settings (key, value)
 VALUES ('working_days', '[0, 1, 2, 3, 4, 6]'::jsonb)
 ON CONFLICT (key) DO NOTHING;
 
--- 5. Disable RLS or Grant Full Access for Anon Role (Solves RLS insert/delete permission issues)
+-- 5. Disable RLS and Grant Full Access to Anonymous/Mobile Users
 ALTER TABLE appointments DISABLE ROW LEVEL SECURITY;
 ALTER TABLE blacklisted_phones DISABLE ROW LEVEL SECURITY;
 ALTER TABLE clinic_settings DISABLE ROW LEVEL SECURITY;
+
+GRANT ALL ON TABLE appointments TO anon, authenticated, service_role;
+GRANT ALL ON TABLE blacklisted_phones TO anon, authenticated, service_role;
+GRANT ALL ON TABLE clinic_settings TO anon, authenticated, service_role;
 
 -- 6. Trigger for updated_at
 CREATE OR REPLACE FUNCTION update_updated_at_column()
