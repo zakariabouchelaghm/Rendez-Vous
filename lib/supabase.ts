@@ -2,11 +2,14 @@ import { createClient } from '@supabase/supabase-js';
 import { Appointment, BlacklistedPhone, AppointmentStatus } from './types';
 import { getHoursUntilAppointment } from './utils';
 
-// Clean Supabase URL if trailing /rest/v1/ was included in .env
-let rawUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+// Hardcoded production fallbacks so Vercel builds work out-of-the-box even if Vercel Env Vars are unset
+const FALLBACK_SUPABASE_URL = 'https://ddyafitpiyglnyhaudix.supabase.co';
+const FALLBACK_SUPABASE_ANON_KEY = 'sb_publishable_eiA0TUDqeoP5oyKapFL6KA_lumJo8qU';
+
+let rawUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || FALLBACK_SUPABASE_URL;
 rawUrl = rawUrl.replace(/\/rest\/v1\/?$/, '').replace(/\/$/, '');
 
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || FALLBACK_SUPABASE_ANON_KEY;
 
 export const supabase = createClient(rawUrl, supabaseAnonKey);
 
