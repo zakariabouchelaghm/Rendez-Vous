@@ -135,7 +135,7 @@ export async function createAppointment(data: {
     };
   }
 
-  // 2. Insert into Supabase
+  // 2. Prepare payload
   const apptPayload = {
     full_name: data.full_name,
     phone_number: data.phone_number,
@@ -146,22 +146,39 @@ export async function createAppointment(data: {
   };
 
   try {
+    // Attempt insert with select
     const { data: inserted, error } = await supabase
       .from('appointments')
       .insert([apptPayload])
       .select();
 
-    if (!error && inserted && inserted.length > 0) {
-      return { success: true, appointment: inserted[0] as Appointment };
-    }
-
     if (error) {
       console.error('Supabase Insert Error:', error);
       return {
         success: false,
-        error: error.message || 'فشل حفظ الحجز في قاعدة البيانات. يُرجى التأكد من تشغيل الـ SQL Schema.'
+        error: `خطأ أثناء الحفظ في قاعدة البيانات: ${error.message}`
       };
     }
+
+    if (inserted && inserted.length > 0) {
+      return { success: true, appointment: inserted[0] as Appointment };
+    }
+
+    // If inserted is empty (can happen if RLS prevents returning rows), perform fallback select by booking_code
+    const { data: fetchedAppt } = await supabase
+      .from('appointments')
+      .select('*')
+      .eq('booking_code', data.booking_code)
+      .maybeSingle();
+
+    if (fetchedAppt) {
+      return { success: true, appointment: fetchedAppt as Appointment };
+    }
+
+    return {
+      success: false,
+      error: 'لم نتمكن من تأكيد حفظ الحجز في Supabase. يُرجى التوجه لمحرر SQL في Supabase وتشغيل schema.sql.'
+    };
   } catch (err: any) {
     console.error('Supabase Insert Exception:', err);
     return {
@@ -169,16 +186,6 @@ export async function createAppointment(data: {
       error: err?.message || 'حدث خطأ عند الاتصال بقاعدة البيانات.'
     };
   }
-
-  // Fallback object return
-  const fallbackAppt: Appointment = {
-    id: `appt-${Date.now()}`,
-    ...apptPayload,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  };
-
-  return { success: true, appointment: fallbackAppt };
 }
 
 /**
