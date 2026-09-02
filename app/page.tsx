@@ -38,7 +38,7 @@ export default function HomePage() {
   const [activeTab, setActiveTab] = useState<'book' | 'confirm'>('book');
 
   // Tab 1: Booking Form State
-  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [slots, setSlots] = useState<TimeSlot[]>([]);
   const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null);
   const [fullName, setFullName] = useState('');
@@ -58,8 +58,16 @@ export default function HomePage() {
   // Existing booked times to disable slots
   const [bookedTimes, setBookedTimes] = useState<string[]>([]);
 
+  // Set selectedDate on client only (avoids SSR timezone mismatch)
+  useEffect(() => {
+    setSelectedDate(new Date());
+  }, []);
+
   // Load existing booked appointments and doctor working days configuration
-  const loadSlotsAndBookings = async () => {
+  const loadSlotsAndBookings = async (dateOverride?: Date) => {
+    const date = dateOverride ?? selectedDate;
+    if (!date) return;
+
     const days = await getWorkingDays();
     setWorkingDays(days);
 
@@ -71,12 +79,12 @@ export default function HomePage() {
 
     setBookedTimes(activeTimes);
 
-    const generated = generateDayTimeSlots(selectedDate, activeTimes, days);
+    const generated = generateDayTimeSlots(date, activeTimes, days);
     setSlots(generated);
   };
 
   useEffect(() => {
-    loadSlotsAndBookings();
+    if (selectedDate) loadSlotsAndBookings(selectedDate);
   }, [selectedDate]);
 
   // Handle Booking Submit
