@@ -45,6 +45,7 @@ export default function HomePage() {
   const [phoneNumber, setPhoneNumber] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [bookingError, setBookingError] = useState<string | null>(null);
+  const [debugError, setDebugError] = useState<string | null>(null);
   const [createdAppointment, setCreatedAppointment] = useState<Appointment | null>(null);
   const [workingDays, setWorkingDays] = useState<number[]>([0, 1, 2, 3, 4, 6]);
 
@@ -99,6 +100,7 @@ export default function HomePage() {
     }
 
     setIsSubmitting(true);
+    setDebugError(null);
 
     try {
       // 1. Blacklist Check
@@ -126,7 +128,9 @@ export default function HomePage() {
       });
 
       if (!res.success || !res.appointment) {
-        setBookingError(res.error || 'حدث خطأ أثناء إجراء الحجز، يُرجى المحاولة مرة أخرى.');
+        const errMsg = res.error || 'خطأ غير محدد';
+        setBookingError(errMsg);
+        setDebugError(`[DEBUG] code=${code} | error=${errMsg}`);
         setIsSubmitting(false);
         return;
       }
@@ -137,8 +141,10 @@ export default function HomePage() {
       setPhoneNumber('');
       setSelectedSlot(null);
       await loadSlotsAndBookings();
-    } catch (err) {
+    } catch (err: any) {
+      const errMsg = err?.message || String(err);
       setBookingError('حدث خطأ غير متوقع في النظام، يُرجى إعادة المحاولة.');
+      setDebugError(`[DEBUG EXCEPTION] ${errMsg}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -248,6 +254,13 @@ export default function HomePage() {
                 <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-xs sm:text-sm font-semibold flex items-start gap-2.5 shadow-sm">
                   <ShieldAlert className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
                   <span>{bookingError}</span>
+                </div>
+              )}
+
+              {/* Debug Panel - shows raw error for troubleshooting */}
+              {debugError && (
+                <div className="p-3 rounded-xl bg-yellow-50 border border-yellow-300 text-yellow-900 text-[10px] font-mono break-all">
+                  {debugError}
                 </div>
               )}
 
