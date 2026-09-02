@@ -10,14 +10,23 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
 export const supabase = createClient(rawUrl, supabaseAnonKey);
 
-// Clear any legacy demo appointments stored in browser local storage
+// Clear any legacy demo appointments stored in browser local storage & Supabase DB
 if (typeof window !== 'undefined') {
   try {
     localStorage.removeItem('rendezvous_appointments');
     localStorage.removeItem('rendezvous_blacklist');
-  } catch (e) {
-    console.warn('LocalStorage cleanup skipped:', e);
-  }
+  } catch (e) {}
+}
+
+// Issue direct delete query to Supabase DB to remove demo patients
+if (supabase) {
+  supabase
+    .from('appointments')
+    .delete()
+    .in('full_name', ['أحمد محمود', 'سارة خالد', 'Ahmed Mahmoud', 'Sara Khaled'])
+    .then(({ error }) => {
+      if (error) console.warn('Supabase demo cleanup warning:', error.message);
+    });
 }
 
 // ==========================================

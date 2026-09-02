@@ -25,6 +25,9 @@ CREATE TABLE IF NOT EXISTS appointments (
 CREATE INDEX IF NOT EXISTS idx_appointments_code_phone ON appointments(booking_code, phone_number);
 CREATE INDEX IF NOT EXISTS idx_appointments_status_time ON appointments(status, appointment_time);
 
+-- Delete demo/sample patient records if present
+DELETE FROM appointments WHERE full_name IN ('أحمد محمود', 'سارة خالد', 'Ahmed Mahmoud', 'Sara Khaled');
+
 -- 3. Create Blacklisted Phones Table
 CREATE TABLE IF NOT EXISTS blacklisted_phones (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
