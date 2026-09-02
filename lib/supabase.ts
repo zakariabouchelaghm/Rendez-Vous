@@ -10,7 +10,7 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
 export const supabase = createClient(rawUrl, supabaseAnonKey);
 
-// Clear any legacy demo appointments stored in browser local storage & Supabase DB
+// Clear legacy demo storage on load
 if (typeof window !== 'undefined') {
   try {
     localStorage.removeItem('rendezvous_appointments');
@@ -18,14 +18,16 @@ if (typeof window !== 'undefined') {
   } catch (e) {}
 }
 
-// Issue direct delete query to Supabase DB to remove demo patients
+// Automatic cleanup of demo patients in Supabase database
 if (supabase) {
   supabase
     .from('appointments')
     .delete()
     .in('full_name', ['أحمد محمود', 'سارة خالد', 'Ahmed Mahmoud', 'Sara Khaled'])
     .then(({ error }) => {
-      if (error) console.warn('Supabase demo cleanup warning:', error.message);
+      if (error) {
+        console.error('Supabase DB cleanup error (Please ensure schema.sql was executed):', error.message);
+      }
     });
 }
 
@@ -33,7 +35,6 @@ if (supabase) {
 // Working Days Management (Stored in Supabase clinic_settings)
 // ==========================================
 
-// Default working days: Sunday(0), Monday(1), Tuesday(2), Wednesday(3), Thursday(4), Saturday(6) - Friday(5) closed
 const DEFAULT_WORKING_DAYS = [0, 1, 2, 3, 4, 6];
 
 export async function getWorkingDays(): Promise<number[]> {
@@ -48,10 +49,9 @@ export async function getWorkingDays(): Promise<number[]> {
       return data.value as number[];
     }
   } catch (err) {
-    console.warn('Could not fetch working_days from Supabase, using default working days:', err);
+    console.warn('Could not fetch working_days from Supabase:', err);
   }
 
-  // Fallback to local storage or defaults if table not created yet
   if (typeof window !== 'undefined') {
     try {
       const saved = localStorage.getItem('rendezvous_working_days');
@@ -68,7 +68,9 @@ export async function saveWorkingDays(days: number[]): Promise<boolean> {
       .from('clinic_settings')
       .upsert({ key: 'working_days', value: days, updated_at: new Date().toISOString() });
 
-    if (!error) {
+    if (error) {
+      console.error('Save working days error:', error.message);
+    } else {
       if (typeof window !== 'undefined') {
         localStorage.setItem('rendezvous_working_days', JSON.stringify(days));
       }
@@ -102,8 +104,9 @@ export async function isPhoneBlacklisted(phoneNumber: string): Promise<boolean> 
       .maybeSingle();
 
     if (!error && data) return true;
+    if (error) console.error('Blacklist query error:', error.message);
   } catch (err) {
-    console.error('Blacklist query error:', err);
+    console.error('Blacklist query exception:', err);
   }
 
   return false;
@@ -148,11 +151,13 @@ export async function createAppointment(data: {
       return { success: true, appointment: inserted as Appointment };
     }
 
+    console.error('Supabase Insert Error:', error);
     return {
       success: false,
       error: error?.message || 'فشل حفظ الحجز في قاعدة البيانات، يُرجى التأكد من تشغيل الـ SQL Schema.'
     };
   } catch (err: any) {
+    console.error('Supabase Insert Exception:', err);
     return {
       success: false,
       error: err?.message || 'حدث خطأ عند الاتصال بقاعدة البيانات.'
@@ -176,6 +181,7 @@ export async function confirmAppointment(bookingCode: string, phoneNumber: strin
       .maybeSingle();
 
     if (error || !data) {
+      if (error) console.error('Confirm fetch error:', error.message);
       return { success: false, message: 'رمز الحجز غير صحيح أو انتهت صلاحيته بسبب التأخر في التأكيد.' };
     }
 
@@ -230,6 +236,9 @@ export async function fetchAppointments(): Promise<Appointment[]> {
     if (!error && data) {
       return data as Appointment[];
     }
+    if (error) {
+      console.error('Fetch appointments error from Supabase:', error.message);
+    }
   } catch (err) {
     console.error('Error fetching appointments from Supabase:', err);
   }
@@ -248,6 +257,7 @@ export async function cancelAppointment(appointmentId: string): Promise<boolean>
       .eq('id', appointmentId);
 
     if (!error) return true;
+    if (error) console.error('Cancel appointment error:', error.message);
   } catch (err) {
     console.error('Error canceling appointment:', err);
   }
@@ -274,6 +284,7 @@ export async function markPatientNoShow(appointmentId: string, phoneNumber: stri
       .eq('id', appointmentId);
 
     if (!error) return true;
+    if (error) console.error('Mark no-show error:', error.message);
   } catch (err) {
     console.error('Error marking no-show:', err);
   }

@@ -51,22 +51,10 @@ INSERT INTO clinic_settings (key, value)
 VALUES ('working_days', '[0, 1, 2, 3, 4, 6]'::jsonb)
 ON CONFLICT (key) DO NOTHING;
 
--- 5. Enable Row Level Security (RLS) & Policies
-ALTER TABLE appointments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE blacklisted_phones ENABLE ROW LEVEL SECURITY;
-ALTER TABLE clinic_settings ENABLE ROW LEVEL SECURITY;
-
--- Public Read & Write Policies for Anonymous Access
-CREATE POLICY "Allow public insert appointments" ON appointments FOR INSERT WITH CHECK (true);
-CREATE POLICY "Allow public select appointments" ON appointments FOR SELECT USING (true);
-CREATE POLICY "Allow public update appointments" ON appointments FOR UPDATE USING (true);
-CREATE POLICY "Allow public delete appointments" ON appointments FOR DELETE USING (true);
-
-CREATE POLICY "Allow public select blacklisted_phones" ON blacklisted_phones FOR SELECT USING (true);
-CREATE POLICY "Allow public insert blacklisted_phones" ON blacklisted_phones FOR INSERT WITH CHECK (true);
-
-CREATE POLICY "Allow public select clinic_settings" ON clinic_settings FOR SELECT USING (true);
-CREATE POLICY "Allow public update clinic_settings" ON clinic_settings FOR ALL USING (true);
+-- 5. Disable RLS or Grant Full Access for Anon Role (Solves RLS insert/delete permission issues)
+ALTER TABLE appointments DISABLE ROW LEVEL SECURITY;
+ALTER TABLE blacklisted_phones DISABLE ROW LEVEL SECURITY;
+ALTER TABLE clinic_settings DISABLE ROW LEVEL SECURITY;
 
 -- 6. Trigger for updated_at
 CREATE OR REPLACE FUNCTION update_updated_at_column()
