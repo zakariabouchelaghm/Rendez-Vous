@@ -10,6 +10,16 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
 export const supabase = createClient(rawUrl, supabaseAnonKey);
 
+// Clear any legacy demo appointments stored in browser local storage
+if (typeof window !== 'undefined') {
+  try {
+    localStorage.removeItem('rendezvous_appointments');
+    localStorage.removeItem('rendezvous_blacklist');
+  } catch (e) {
+    console.warn('LocalStorage cleanup skipped:', e);
+  }
+}
+
 // ==========================================
 // Working Days Management (Stored in Supabase clinic_settings)
 // ==========================================
