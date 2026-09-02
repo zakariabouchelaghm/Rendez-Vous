@@ -1,36 +1,49 @@
-import { createClient } from '@supabase/supabase-js';
-import { Appointment, BlacklistedPhone, AppointmentStatus } from './types';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { Appointment, AppointmentStatus } from './types';
 import { getHoursUntilAppointment } from './utils';
 
-// Hardcoded production fallbacks so Vercel builds work out-of-the-box even if Vercel Env Vars are unset
+// ==========================================
+// Lazy Supabase Client (initialized on first use, not at module load)
+// This prevents build-time failures when env vars are not yet available.
+// ==========================================
+
 const FALLBACK_SUPABASE_URL = 'https://ddyafitpiyglnyhaudix.supabase.co';
 const FALLBACK_SUPABASE_ANON_KEY = 'sb_publishable_eiA0TUDqeoP5oyKapFL6KA_lumJo8qU';
 
-let rawUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || FALLBACK_SUPABASE_URL;
-rawUrl = rawUrl.replace(/\/rest\/v1\/?$/, '').replace(/\/$/, '');
+let _supabase: SupabaseClient | null = null;
 
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || FALLBACK_SUPABASE_ANON_KEY;
+export function getSupabaseClient(): SupabaseClient {
+  if (_supabase) return _supabase;
 
-export const supabase = createClient(rawUrl, supabaseAnonKey);
+  let rawUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || FALLBACK_SUPABASE_URL;
+  rawUrl = rawUrl.replace(/\/rest\/v1\/?$/, '').replace(/\/$/, '');
+  if (!rawUrl.startsWith('http')) rawUrl = FALLBACK_SUPABASE_URL;
 
-// Clear legacy demo storage on load
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || FALLBACK_SUPABASE_ANON_KEY;
+
+  _supabase = createClient(rawUrl, key);
+  return _supabase;
+}
+
+// Convenience export — same as calling getSupabaseClient()
+export const supabase = {
+  from: (table: string) => getSupabaseClient().from(table),
+};
+
+// Clear legacy demo storage on load (client only)
 if (typeof window !== 'undefined') {
   try {
     localStorage.removeItem('rendezvous_appointments');
     localStorage.removeItem('rendezvous_blacklist');
   } catch (e) {}
-}
 
-// Automatic cleanup of demo patients in Supabase database
-if (supabase) {
-  supabase
+  // Automatic cleanup of demo patients in Supabase database
+  getSupabaseClient()
     .from('appointments')
     .delete()
     .in('full_name', ['أحمد محمود', 'سارة خالد', 'Ahmed Mahmoud', 'Sara Khaled'])
     .then(({ error }) => {
-      if (error) {
-        console.error('Supabase DB cleanup error (Please ensure schema.sql was executed):', error.message);
-      }
+      if (error) console.error('Supabase DB cleanup error:', error.message);
     });
 }
 
@@ -42,7 +55,7 @@ const DEFAULT_WORKING_DAYS = [0, 1, 2, 3, 4, 6];
 
 export async function getWorkingDays(): Promise<number[]> {
   try {
-    const { data, error } = await supabase
+    const { data, error } = await getSupabaseClient()
       .from('clinic_settings')
       .select('value')
       .eq('key', 'working_days')
@@ -67,7 +80,7 @@ export async function getWorkingDays(): Promise<number[]> {
 
 export async function saveWorkingDays(days: number[]): Promise<boolean> {
   try {
-    const { error } = await supabase
+    const { error } = await getSupabaseClient()
       .from('clinic_settings')
       .upsert({ key: 'working_days', value: days, updated_at: new Date().toISOString() });
 
@@ -93,14 +106,10 @@ export async function saveWorkingDays(days: number[]): Promise<boolean> {
 // Core Database Integration (Supabase)
 // ==========================================
 
-/**
- * Check if a phone number is blacklisted in Supabase
- */
 export async function isPhoneBlacklisted(phoneNumber: string): Promise<boolean> {
   const cleanPhone = phoneNumber.trim();
-
   try {
-    const { data, error } = await supabase
+    const { data, error } = await getSupabaseClient()
       .from('blacklisted_phones')
       .select('phone_number')
       .eq('phone_number', cleanPhone)
@@ -111,13 +120,9 @@ export async function isPhoneBlacklisted(phoneNumber: string): Promise<boolean> 
   } catch (err) {
     console.error('Blacklist query exception:', err);
   }
-
   return false;
 }
 
-/**
- * Create a new appointment in Supabase
- */
 export async function createAppointment(data: {
   full_name: string;
   phone_number: string;
@@ -126,16 +131,11 @@ export async function createAppointment(data: {
   status: AppointmentStatus;
   is_flash_booking: boolean;
 }): Promise<{ success: boolean; appointment?: Appointment; error?: string }> {
-  // 1. Check Blacklist
   const blacklisted = await isPhoneBlacklisted(data.phone_number);
   if (blacklisted) {
-    return {
-      success: false,
-      error: 'عذراً، هذا الرقم محظور من إجراء الحجوزات بسبب سجل سابق من عدم الحضور.'
-    };
+    return { success: false, error: 'عذراً، هذا الرقم محظور من إجراء الحجوزات بسبب سجل سابق من عدم الحضور.' };
   }
 
-  // 2. Prepare payload
   const apptPayload = {
     full_name: data.full_name,
     phone_number: data.phone_number,
@@ -146,57 +146,42 @@ export async function createAppointment(data: {
   };
 
   try {
-    // Attempt insert with select
-    const { data: inserted, error } = await supabase
+    const { data: inserted, error } = await getSupabaseClient()
       .from('appointments')
       .insert([apptPayload])
       .select();
 
     if (error) {
       console.error('Supabase Insert Error:', error);
-      return {
-        success: false,
-        error: `خطأ أثناء الحفظ في قاعدة البيانات: ${error.message}`
-      };
+      return { success: false, error: `خطأ أثناء الحفظ في قاعدة البيانات: ${error.message}` };
     }
 
     if (inserted && inserted.length > 0) {
       return { success: true, appointment: inserted[0] as Appointment };
     }
 
-    // If inserted is empty (can happen if RLS prevents returning rows), perform fallback select by booking_code
-    const { data: fetchedAppt } = await supabase
+    // Fallback: try to fetch the inserted row by booking_code
+    const { data: fetchedAppt } = await getSupabaseClient()
       .from('appointments')
       .select('*')
       .eq('booking_code', data.booking_code)
       .maybeSingle();
 
-    if (fetchedAppt) {
-      return { success: true, appointment: fetchedAppt as Appointment };
-    }
+    if (fetchedAppt) return { success: true, appointment: fetchedAppt as Appointment };
 
-    return {
-      success: false,
-      error: 'لم نتمكن من تأكيد حفظ الحجز في Supabase. يُرجى التوجه لمحرر SQL في Supabase وتشغيل schema.sql.'
-    };
+    return { success: false, error: 'لم نتمكن من تأكيد حفظ الحجز. يُرجى تشغيل schema.sql في Supabase.' };
   } catch (err: any) {
     console.error('Supabase Insert Exception:', err);
-    return {
-      success: false,
-      error: err?.message || 'حدث خطأ عند الاتصال بقاعدة البيانات.'
-    };
+    return { success: false, error: err?.message || 'حدث خطأ عند الاتصال بقاعدة البيانات.' };
   }
 }
 
-/**
- * Confirm an existing appointment by booking code and phone number in Supabase
- */
 export async function confirmAppointment(bookingCode: string, phoneNumber: string): Promise<{ success: boolean; message: string }> {
   const cleanCode = bookingCode.trim().toUpperCase();
   const cleanPhone = phoneNumber.trim();
 
   try {
-    const { data, error } = await supabase
+    const { data, error } = await getSupabaseClient()
       .from('appointments')
       .select('*')
       .eq('booking_code', cleanCode)
@@ -205,76 +190,56 @@ export async function confirmAppointment(bookingCode: string, phoneNumber: strin
 
     if (error || !data) {
       if (error) console.error('Confirm fetch error:', error.message);
-      return { success: false, message: 'رمز الحجز غير صحيح أو انتهت صلاحيته بسبب التأخر في التأكيد.' };
+      return { success: false, message: 'رمز الحجز غير صحيح أو انتهت صلاحيته.' };
     }
 
     const appt = data as Appointment;
 
-    if (appt.status === 'confirmed') {
-      return { success: true, message: 'حضورك مؤكد بالفعل لهذا الموعد!' };
-    }
-
+    if (appt.status === 'confirmed') return { success: true, message: 'حضورك مؤكد بالفعل لهذا الموعد!' };
     if (appt.status === 'canceled' || appt.status === 'expired') {
-      return { success: false, message: 'رمز الحجز غير صحيح أو انتهت صلاحيته بسبب التأخر في التأكيد.' };
+      return { success: false, message: 'رمز الحجز غير صحيح أو انتهت صلاحيته.' };
     }
 
-    // Check if < 3 hours remaining before appointment time
     const hoursUntil = getHoursUntilAppointment(appt.appointment_time);
     if (hoursUntil < 3) {
-      // Expire appointment
-      await supabase
+      await getSupabaseClient()
         .from('appointments')
         .update({ status: 'expired', updated_at: new Date().toISOString() })
         .eq('id', appt.id);
-
-      return { success: false, message: 'رمز الحجز غير صحيح أو انتهت صلاحيته بسبب التأخر في التأكيد.' };
+      return { success: false, message: 'رمز الحجز غير صحيح أو انتهت صلاحيته.' };
     }
 
-    // Update to confirmed
-    const { error: updateErr } = await supabase
+    const { error: updateErr } = await getSupabaseClient()
       .from('appointments')
       .update({ status: 'confirmed', updated_at: new Date().toISOString() })
       .eq('id', appt.id);
 
-    if (!updateErr) {
-      return { success: true, message: 'تم تأكيد حضورك بنجاح!' };
-    }
+    if (!updateErr) return { success: true, message: 'تم تأكيد حضورك بنجاح!' };
   } catch (err) {
     console.error('Error confirming appointment:', err);
   }
 
-  return { success: false, message: 'رمز الحجز غير صحيح أو انتهت صلاحيته بسبب التأخر في التأكيد.' };
+  return { success: false, message: 'رمز الحجز غير صحيح أو انتهت صلاحيته.' };
 }
 
-/**
- * Fetch all appointments from Supabase
- */
 export async function fetchAppointments(): Promise<Appointment[]> {
   try {
-    const { data, error } = await supabase
+    const { data, error } = await getSupabaseClient()
       .from('appointments')
       .select('*')
       .order('appointment_time', { ascending: true });
 
-    if (!error && data) {
-      return data as Appointment[];
-    }
-    if (error) {
-      console.error('Fetch appointments error from Supabase:', error.message);
-    }
+    if (!error && data) return data as Appointment[];
+    if (error) console.error('Fetch appointments error:', error.message);
   } catch (err) {
-    console.error('Error fetching appointments from Supabase:', err);
+    console.error('Error fetching appointments:', err);
   }
-
   return [];
 }
 
-/**
- * Update appointment status to 'canceled' in Supabase
- */
 export async function cancelAppointment(appointmentId: string): Promise<boolean> {
   try {
-    const { error } = await supabase
+    const { error } = await getSupabaseClient()
       .from('appointments')
       .update({ status: 'canceled', updated_at: new Date().toISOString() })
       .eq('id', appointmentId);
@@ -284,24 +249,17 @@ export async function cancelAppointment(appointmentId: string): Promise<boolean>
   } catch (err) {
     console.error('Error canceling appointment:', err);
   }
-
   return false;
 }
 
-/**
- * Mark patient as No-Show: Adds phone number to blacklisted_phones and sets status to 'canceled' in Supabase
- */
 export async function markPatientNoShow(appointmentId: string, phoneNumber: string, reason = 'تسجيل عدم حضور من قبل الطبيب'): Promise<boolean> {
   const cleanPhone = phoneNumber.trim();
-
   try {
-    // 1. Add to blacklisted_phones table in Supabase
-    await supabase
+    await getSupabaseClient()
       .from('blacklisted_phones')
       .upsert({ phone_number: cleanPhone, reason }, { onConflict: 'phone_number' });
 
-    // 2. Update appointment status to canceled
-    const { error } = await supabase
+    const { error } = await getSupabaseClient()
       .from('appointments')
       .update({ status: 'canceled', updated_at: new Date().toISOString() })
       .eq('id', appointmentId);
@@ -311,35 +269,27 @@ export async function markPatientNoShow(appointmentId: string, phoneNumber: stri
   } catch (err) {
     console.error('Error marking no-show:', err);
   }
-
   return false;
 }
 
-/**
- * Automated Cron Cleanup: Find pending records < 3 hours away and mark them as expired in Supabase
- */
 export async function cleanupExpiredAppointments(): Promise<{ expiredCount: number; updatedIds: string[] }> {
   const now = new Date();
   const updatedIds: string[] = [];
 
   try {
-    const { data: pendingAppts, error } = await supabase
+    const { data: pendingAppts, error } = await getSupabaseClient()
       .from('appointments')
       .select('*')
       .eq('status', 'pending');
 
     if (!error && pendingAppts) {
       for (const appt of pendingAppts as Appointment[]) {
-        const apptTime = new Date(appt.appointment_time);
-        const diffHours = (apptTime.getTime() - now.getTime()) / (1000 * 60 * 60);
-
-        // If pending and < 3 hours before appointment time
+        const diffHours = (new Date(appt.appointment_time).getTime() - now.getTime()) / (1000 * 60 * 60);
         if (diffHours < 3) {
-          await supabase
+          await getSupabaseClient()
             .from('appointments')
             .update({ status: 'expired', updated_at: now.toISOString() })
             .eq('id', appt.id);
-
           updatedIds.push(appt.id);
         }
       }
