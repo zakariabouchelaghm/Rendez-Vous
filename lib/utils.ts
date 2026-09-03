@@ -14,46 +14,52 @@ export function generateBookingCode(): string {
 
 /**
  * Format a Date object or ISO string to Arabic local time using Western Latin digits (e.g. 10:30 صباحاً / 04:15 مساءً)
+ * Enforced in Algeria Time (Africa/Algiers)
  */
 export function formatArabicTime(dateInput: Date | string): string {
   const date = typeof dateInput === 'string' ? new Date(dateInput) : dateInput;
   if (isNaN(date.getTime())) return '';
 
-  let hours = date.getHours();
-  const minutes = date.getMinutes().toString().padStart(2, '0');
+  const str = date.toLocaleString('en-US', { timeZone: 'Africa/Algiers', hour12: false });
+  const timePart = str.split(', ')[1];
+  if (!timePart) return '';
+  const [hh, mm] = timePart.split(':');
+  
+  let hours = parseInt(hh, 10);
+  const minutes = mm;
   const period = hours >= 12 ? 'مساءً' : 'صباحاً';
 
   hours = hours % 12;
-  hours = hours ? hours : 12; // 0 becomes 12
-
+  hours = hours ? hours : 12; 
   const hoursStr = hours.toString().padStart(2, '0');
   return `${hoursStr}:${minutes} ${period}`;
 }
 
 /**
  * Format a Date object or ISO string to Arabic Date using Western Latin digits (e.g., الأربعاء، 2 سبتمبر 2026)
+ * Enforced in Algeria Time (Africa/Algiers)
  */
 export function formatArabicDate(dateInput: Date | string): string {
   const date = typeof dateInput === 'string' ? new Date(dateInput) : dateInput;
   if (isNaN(date.getTime())) return '';
 
-  // Use ar-EG-u-nu-latn to enforce standard Western digits (0-9)
   return new Intl.DateTimeFormat('ar-EG-u-nu-latn', {
     weekday: 'long',
     year: 'numeric',
     month: 'long',
-    day: 'numeric'
+    day: 'numeric',
+    timeZone: 'Africa/Algiers'
   }).format(date);
 }
 
 /**
  * Short Arabic date format (e.g., 2026-09-02)
+ * Enforced in Algeria Time (Africa/Algiers)
  */
 export function formatISODateOnly(date: Date): string {
-  const year = date.getFullYear();
-  const month = (date.getMonth() + 1).toString().padStart(2, '0');
-  const day = date.getDate().toString().padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  const str = date.toLocaleDateString('en-US', { timeZone: 'Africa/Algiers' });
+  const [m, d, y] = str.split('/');
+  return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
 }
 
 /**
@@ -83,7 +89,16 @@ export function generateDayTimeSlots(
   bookedTimes: string[] = [],
   workingDays: number[] = [0, 1, 2, 3, 4, 6] // Friday (5) closed by default
 ): TimeSlot[] {
-  const dayOfWeek = selectedDate.getDay();
+  // Get Algeria date parts
+  const algeriaDateStr = selectedDate.toLocaleDateString('en-US', { timeZone: 'Africa/Algiers' });
+  const [m, d, y] = algeriaDateStr.split('/');
+  const year = parseInt(y, 10);
+  const month = parseInt(m, 10) - 1;
+  const date = parseInt(d, 10);
+
+  // Get day of week for this date in Algeria
+  const noonUTC = new Date(Date.UTC(year, month, date, 11, 0, 0));
+  const dayOfWeek = noonUTC.getUTCDay();
 
   // If selected day is NOT in workingDays (e.g., Friday), return empty slots array
   if (!workingDays.includes(dayOfWeek)) {
@@ -95,31 +110,26 @@ export function generateDayTimeSlots(
   const endHour = 18; // 06:00 PM
   const now = new Date();
 
-  // Create date object at start of working hours for selectedDate
-  const currentSlotTime = new Date(selectedDate);
-  currentSlotTime.setSeconds(0);
-  currentSlotTime.setMilliseconds(0);
-
   for (let hour = startHour; hour < endHour; hour++) {
     for (let min = 0; min < 60; min += 30) {
-      currentSlotTime.setHours(hour, min);
-      const slotISO = currentSlotTime.toISOString();
+      // Construct slot absolute time (Algeria is UTC+1, so local hour is UTC hour - 1)
+      const slotTime = new Date(Date.UTC(year, month, date, hour - 1, min, 0, 0));
 
       // Past slots (earlier than right now) are unavailable
-      const isPast = currentSlotTime.getTime() <= now.getTime();
+      const isPast = slotTime.getTime() <= now.getTime();
       
       // Check if slot is already booked
       const isAlreadyBooked = bookedTimes.some(b => {
         const bDate = new Date(b);
-        return Math.abs(bDate.getTime() - currentSlotTime.getTime()) < 60 * 1000;
+        return Math.abs(bDate.getTime() - slotTime.getTime()) < 60 * 1000;
       });
 
-      const hoursUntil = (currentSlotTime.getTime() - now.getTime()) / (1000 * 60 * 60);
+      const hoursUntil = (slotTime.getTime() - now.getTime()) / (1000 * 60 * 60);
       const flash = hoursUntil > 0 && hoursUntil < 3;
 
       slots.push({
-        time: new Date(currentSlotTime),
-        formattedTime: formatArabicTime(currentSlotTime),
+        time: slotTime,
+        formattedTime: formatArabicTime(slotTime),
         isAvailable: !isPast && !isAlreadyBooked,
         isFlashSlot: flash
       });

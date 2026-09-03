@@ -201,6 +201,9 @@ export async function confirmAppointment(bookingCode: string, phoneNumber: strin
     }
 
     const hoursUntil = getHoursUntilAppointment(appt.appointment_time);
+    if (hoursUntil > 24) {
+      return { success: false, message: 'لا يمكن تأكيد الحضور إلا قبل الموعد بـ 24 ساعة على الأكثر.' };
+    }
     if (hoursUntil < 3) {
       await getSupabaseClient()
         .from('appointments')
