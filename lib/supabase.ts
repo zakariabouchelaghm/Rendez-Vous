@@ -241,7 +241,7 @@ export async function cancelAppointment(appointmentId: string): Promise<boolean>
   try {
     const { error } = await getSupabaseClient()
       .from('appointments')
-      .update({ status: 'canceled', updated_at: new Date().toISOString() })
+      .delete()
       .eq('id', appointmentId);
 
     if (!error) return true;
@@ -252,22 +252,17 @@ export async function cancelAppointment(appointmentId: string): Promise<boolean>
   return false;
 }
 
-export async function markPatientNoShow(appointmentId: string, phoneNumber: string, reason = 'تسجيل عدم حضور من قبل الطبيب'): Promise<boolean> {
-  const cleanPhone = phoneNumber.trim();
+export async function markAppointmentAttended(appointmentId: string): Promise<boolean> {
   try {
-    await getSupabaseClient()
-      .from('blacklisted_phones')
-      .upsert({ phone_number: cleanPhone, reason }, { onConflict: 'phone_number' });
-
     const { error } = await getSupabaseClient()
       .from('appointments')
-      .update({ status: 'canceled', updated_at: new Date().toISOString() })
+      .update({ status: 'attended', updated_at: new Date().toISOString() })
       .eq('id', appointmentId);
 
     if (!error) return true;
-    if (error) console.error('Mark no-show error:', error.message);
+    if (error) console.error('Mark attended error:', error.message);
   } catch (err) {
-    console.error('Error marking no-show:', err);
+    console.error('Error marking attended:', err);
   }
   return false;
 }

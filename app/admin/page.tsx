@@ -7,7 +7,7 @@ import { Appointment } from '@/lib/types';
 import { 
   fetchAppointments, 
   cancelAppointment, 
-  markPatientNoShow, 
+  markAppointmentAttended, 
   getWorkingDays, 
   saveWorkingDays 
 } from '@/lib/supabase';
@@ -127,15 +127,15 @@ export default function AdminPage() {
     }
   };
 
-  // Action: Mark No-Show (Blacklist Phone + Cancel)
-  const handleMarkNoShow = async (id: string, phone: string) => {
-    if (!confirm(`هل أنت تأكد من تسجيل "عدم حضور" للمريض؟\nسيتم إضافة الرقم (${phone}) تلقائياً إلى القائمة السوداء لمنع الحجز مستقبلاً.`)) {
+  // Action: Mark Attended
+  const handleMarkAttended = async (id: string) => {
+    if (!confirm(`هل أنت متأكد من تسجيل "حضور" للمريض؟`)) {
       return;
     }
 
-    const success = await markPatientNoShow(id, phone);
+    const success = await markAppointmentAttended(id);
     if (success) {
-      alert('تم إضافة رقم الهاتف إلى القائمة السوداء وإلغاء الموعد بنجاح.');
+      alert('تم تسجيل الحضور بنجاح.');
       loadAppointments();
     } else {
       alert('حدث خطأ أثناء تنفيذ الإجراء.');
@@ -348,7 +348,7 @@ export default function AdminPage() {
         <AdminTable
           appointments={appointments}
           onCancel={handleCancelAppointment}
-          onMarkNoShow={handleMarkNoShow}
+          onMarkAttended={handleMarkAttended}
           loading={loading}
         />
 

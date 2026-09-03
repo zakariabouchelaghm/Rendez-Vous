@@ -18,14 +18,14 @@ import {
 interface AdminTableProps {
   appointments: Appointment[];
   onCancel: (id: string) => Promise<void>;
-  onMarkNoShow: (id: string, phone: string) => Promise<void>;
+  onMarkAttended: (id: string) => Promise<void>;
   loading: boolean;
 }
 
 export default function AdminTable({
   appointments,
   onCancel,
-  onMarkNoShow,
+  onMarkAttended,
   loading,
 }: AdminTableProps) {
   const [searchTerm, setSearchTerm] = useState('');
@@ -82,6 +82,13 @@ export default function AdminTable({
             <span>منتهي</span>
           </span>
         );
+      case 'attended':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-extrabold bg-blue-100 text-blue-800 border border-blue-200">
+            <CheckCircle className="w-3.5 h-3.5 text-blue-600" />
+            <span>تم الحضور</span>
+          </span>
+        );
       default:
         return null;
     }
@@ -114,6 +121,7 @@ export default function AdminTable({
             <option value="all">جميع الحالات</option>
             <option value="pending">معلق (Pending)</option>
             <option value="confirmed">مؤكد (Confirmed)</option>
+            <option value="attended">تم الحضور (Attended)</option>
             <option value="canceled">ملغى (Canceled)</option>
             <option value="expired">منتهي (Expired)</option>
           </select>
@@ -207,32 +215,32 @@ export default function AdminTable({
                       <div className="flex items-center justify-center gap-2">
                         
                         {/* Cancel Appointment Button */}
-                        {appt.status !== 'canceled' && appt.status !== 'expired' && (
+                        {appt.status !== 'canceled' && appt.status !== 'expired' && appt.status !== 'attended' && (
                           <button
                             onClick={() => onCancel(appt.id)}
                             type="button"
                             className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition-all active:scale-95"
-                            title="إلغاء الموعد بدون حظر"
+                            title="إلغاء الموعد"
                           >
                             <XCircle className="w-3.5 h-3.5 text-slate-600" />
                             <span>إلغاء الموعد</span>
                           </button>
                         )}
 
-                        {/* Mark No-Show Button */}
-                        {appt.status !== 'canceled' && (
+                        {/* Mark Attended Button */}
+                        {appt.status !== 'canceled' && appt.status !== 'attended' && (
                           <button
-                            onClick={() => onMarkNoShow(appt.id, appt.phone_number)}
+                            onClick={() => onMarkAttended(appt.id)}
                             type="button"
-                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-rose-100 hover:bg-rose-200 text-rose-800 font-extrabold text-xs transition-all active:scale-95 border border-rose-200"
-                            title="إلغاء الموعد وإضافة رقم المريض إلى القائمة السوداء"
+                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-blue-100 hover:bg-blue-200 text-blue-800 font-extrabold text-xs transition-all active:scale-95 border border-blue-200"
+                            title="حضر المريض في الموعد"
                           >
-                            <UserX className="w-3.5 h-3.5 text-rose-600" />
-                            <span>تسجيل عدم حضور</span>
+                            <CheckCircle className="w-3.5 h-3.5 text-blue-600" />
+                            <span>حضر</span>
                           </button>
                         )}
 
-                        {(appt.status === 'canceled' || appt.status === 'expired') && (
+                        {(appt.status === 'canceled' || appt.status === 'expired' || appt.status === 'attended') && (
                           <span className="text-xs text-slate-400 italic">لا توجد إجراءات</span>
                         )}
 
