@@ -3,10 +3,13 @@
 
 -- 1. Create Appointment Status Enum if not exists
 DO $$ BEGIN
-    CREATE TYPE appointment_status AS ENUM ('pending', 'confirmed', 'canceled', 'expired','attended');
+    CREATE TYPE appointment_status AS ENUM ('pending', 'confirmed', 'canceled', 'expired', 'attended');
 EXCEPTION
     WHEN duplicate_object THEN null;
 END $$;
+
+-- Ensure 'attended' is added if the enum already existed
+ALTER TYPE appointment_status ADD VALUE IF NOT EXISTS 'attended';
 
 -- 2. Create Appointments Table
 CREATE TABLE IF NOT EXISTS appointments (
