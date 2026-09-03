@@ -418,10 +418,11 @@ export default function HomePage() {
                     id="confirm_code"
                     type="text"
                     required
+                    dir="ltr"
                     placeholder="مثال: MED-8K2P"
                     value={confirmCode}
                     onChange={(e) => setConfirmCode(e.target.value.toUpperCase())}
-                    className="w-full px-4 py-3 rounded-2xl border border-slate-200 bg-slate-50/50 font-mono font-bold text-sm text-slate-800 uppercase focus:bg-white focus:border-teal-600 focus:ring-4 focus:ring-teal-100 focus:outline-none transition-all"
+                    className="w-full px-4 py-3 rounded-2xl border border-slate-200 bg-slate-50/50 font-mono font-bold text-sm text-slate-800 uppercase focus:bg-white focus:border-teal-600 focus:ring-4 focus:ring-teal-100 focus:outline-none transition-all text-left"
                   />
                 </div>
 
@@ -435,10 +436,11 @@ export default function HomePage() {
                     id="confirm_phone"
                     type="tel"
                     required
+                    dir="ltr"
                     placeholder="01012345678"
                     value={confirmPhone}
                     onChange={(e) => setConfirmPhone(e.target.value)}
-                    className="w-full px-4 py-3 rounded-2xl border border-slate-200 bg-slate-50/50 text-sm font-medium dir-ltr text-right focus:bg-white focus:border-teal-600 focus:ring-4 focus:ring-teal-100 focus:outline-none transition-all font-sans"
+                    className="w-full px-4 py-3 rounded-2xl border border-slate-200 bg-slate-50/50 text-sm font-medium focus:bg-white focus:border-teal-600 focus:ring-4 focus:ring-teal-100 focus:outline-none transition-all font-sans text-left"
                   />
                 </div>
 
