@@ -343,10 +343,11 @@ export default function HomePage() {
                     id="phone_number"
                     type="tel"
                     required
+                    dir="ltr"
                     placeholder="01012345678"
                     value={phoneNumber}
                     onChange={(e) => setPhoneNumber(e.target.value)}
-                    className="w-full px-4 py-3 rounded-2xl border border-slate-200 bg-slate-50/50 text-sm font-medium dir-ltr text-right focus:bg-white focus:border-teal-600 focus:ring-4 focus:ring-teal-100 focus:outline-none transition-all font-sans"
+                    className="w-full px-4 py-3 rounded-2xl border border-slate-200 bg-slate-50/50 text-sm font-medium focus:bg-white focus:border-teal-600 focus:ring-4 focus:ring-teal-100 focus:outline-none transition-all font-sans text-left"
                   />
                 </div>
 
