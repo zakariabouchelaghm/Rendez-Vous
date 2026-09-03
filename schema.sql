@@ -3,7 +3,7 @@
 
 -- 1. Create Appointment Status Enum if not exists
 DO $$ BEGIN
-    CREATE TYPE appointment_status AS ENUM ('pending', 'confirmed', 'canceled', 'expired');
+    CREATE TYPE appointment_status AS ENUM ('pending', 'confirmed', 'canceled', 'expired','attended');
 EXCEPTION
     WHEN duplicate_object THEN null;
 END $$;
